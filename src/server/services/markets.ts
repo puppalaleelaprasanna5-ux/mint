@@ -5,6 +5,7 @@ import type { MarketFilter } from "@/lib/validation";
 import type { MarketDTO, RegionCode, RegionOverviewDTO } from "@/lib/types";
 import { toInstrumentSummary, toMarketDTO, toQuote } from "./mappers";
 import { resolveBarSource } from "./sources";
+import { getDailyBars } from "./prices";
 
 const REGION_LABELS: Record<RegionCode, string> = { IN: "India", US: "United States" };
 
@@ -69,4 +70,21 @@ export async function getRegionOverviews(
       };
     }),
   );
+}
+
+/**
+ * Primary benchmark index for a region (NIFTY 50 for India, S&P 500 for the US) with its daily
+ * bars, for beta calculations. `isSimulated` lets the risk engine refuse simulated benchmarks.
+ */
+export async function getBenchmark(region: RegionCode) {
+  const { market, symbol } = region === "IN" ? BENCHMARKS.IN[0] : BENCHMARKS.US[1];
+  const instrument = await db.instrument.findFirst({ where: { symbol, market: { code: market } } });
+  if (!instrument) return null;
+  const history = await getDailyBars(instrument.id, { limit: 5000 });
+  return {
+    instrumentId: instrument.id,
+    name: instrument.name,
+    bars: history.bars,
+    isSimulated: history.provenance?.isSimulated ?? true,
+  };
 }

@@ -23,6 +23,9 @@ import { listAlerts } from "@/server/services/alerts";
 import { computeRangeStats } from "@/lib/quotes";
 import { formatPrice, formatVolume } from "@/lib/format";
 import { describeAlert } from "@/lib/alerts";
+import { getBenchmark } from "@/server/services/markets";
+import { buildTechnicalSummary } from "@/lib/technical-summary";
+import { TechnicalAnalysis } from "@/components/analysis/technical-analysis";
 
 type Params = Promise<{ id: string }>;
 
@@ -51,12 +54,18 @@ async function InstrumentDetail({ params }: { params: Params }) {
     throw err;
   }
 
-  const [history, watchlists, memberOf, alerts] = await Promise.all([
+  const [history, watchlists, memberOf, alerts, benchmark] = await Promise.all([
     getDailyBars(id, { limit: 5000 }),
     listWatchlists(),
     watchlistIdsContaining(id),
     listAlerts({ instrumentId: id }),
+    getBenchmark(instrument.market.region),
   ]);
+  const analysis = buildTechnicalSummary(history.bars, {
+    isSimulated: history.provenance?.isSimulated ?? true,
+    benchmark: benchmark ? { name: benchmark.name, bars: benchmark.bars, isSimulated: benchmark.isSimulated } : null,
+    benchmarkIsSelf: benchmark?.instrumentId === instrument.id,
+  });
 
   const q = instrument.quote;
   const yearBars = history.bars.slice(-252);
@@ -166,6 +175,8 @@ async function InstrumentDetail({ params }: { params: Params }) {
           </Card>
         </div>
       </div>
+
+      <TechnicalAnalysis summary={analysis} currency={instrument.currency} instrumentType={instrument.type} />
     </div>
   );
 }
