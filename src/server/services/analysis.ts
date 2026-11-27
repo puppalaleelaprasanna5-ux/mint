@@ -32,7 +32,8 @@ export async function aiExplanationFor(
   options: { timeoutMs?: number } = {},
 ): Promise<ExplanationResult> {
   try {
-    const { provider } = createAIProvider();
+    const { provider, status } = createAIProvider();
+    if (!provider) return { status: "disabled", reason: status.notes[0] ?? "AI explanations are turned off." };
     const ctx = buildExplanationContext(
       { symbol: instrument.symbol, name: instrument.name, type: instrument.type, market: instrument.market.code, currency: instrument.currency },
       summary,

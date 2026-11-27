@@ -156,11 +156,11 @@ describe("createAIProvider", () => {
     expect(status).toMatchObject({ configured: true, isMock: true });
   });
 
-  it("does not pretend to support providers that are not implemented", () => {
-    const { provider, status } = createAIProvider({ AI_PROVIDER: "groq", GROQ_API_KEY: "should-not-be-used" });
+  it("does not pretend to support unknown providers", () => {
+    const { provider, status } = createAIProvider({ AI_PROVIDER: "openai", OPENAI_API_KEY: "should-not-be-used" });
     expect(provider).toBeNull();
     expect(status.configured).toBe(false);
-    expect(status.notes[0]).toMatch(/not implemented yet/);
+    expect(status.notes[0]).toMatch(/not supported/);
     expect(JSON.stringify(status)).not.toContain("should-not-be-used");
   });
 });
