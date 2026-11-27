@@ -1,0 +1,466 @@
+// Mint — personal investment intelligence platform
+// Database: SQLite via Prisma 7 (driver adapter: better-sqlite3)
+//
+// Conventions
+// - All DateTime values are stored in UTC. Exchange-local time is derived from Market.timezone.
+// - Market data rows carry `source` + `isSimulated` so simulated data can never be shown as live.
+// - Money on ledgers (transactions, holdings, paper orders) uses Decimal; analytical OHLCV uses Float.
+// - Currency codes are ISO 4217 (INR, USD). Time zones are IANA (Asia/Kolkata, America/New_York).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum Region {
+  IN
+  US
+}
+
+enum InstrumentType {
+  EQUITY
+  INDEX
+  ETF
+}
+
+enum BarInterval {
+  ONE_MINUTE
+  FIVE_MINUTES
+  ONE_HOUR
+  ONE_DAY
+}
+
+enum AlertType {
+  PRICE_ABOVE
+  PRICE_BELOW
+  PERCENT_CHANGE_UP
+  PERCENT_CHANGE_DOWN
+  VOLUME_SPIKE
+}
+
+enum AlertStatus {
+  ACTIVE
+  PAUSED
+  TRIGGERED
+}
+
+enum PortfolioKind {
+  REAL
+  PAPER
+}
+
+enum TransactionType {
+  BUY
+  SELL
+  DIVIDEND
+  FEE
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  MARKET
+  LIMIT
+}
+
+enum PaperOrderStatus {
+  PENDING
+  FILLED
+  CANCELLED
+  REJECTED
+}
+
+enum SentimentLabel {
+  NEGATIVE
+  NEUTRAL
+  POSITIVE
+}
+
+enum ModelKind {
+  CLASSIFIER
+  REGRESSOR
+  SENTIMENT
+  RISK
+}
+
+enum NotificationType {
+  ALERT_TRIGGERED
+  DAILY_SUMMARY
+  NEWS
+  SIGNAL_CHANGE
+  SYSTEM
+}
+
+// ───────────────────────────── Reference data ─────────────────────────────
+
+/// A stock exchange / trading venue.
+model Market {
+  id          String   @id @default(cuid())
+  code        String   @unique /// Mint code: NSE, BSE, NASDAQ, NYSE
+  mic         String   @unique /// ISO 10383 Market Identifier Code: XNSE, XBOM, XNAS, XNYS
+  name        String
+  region      Region
+  countryCode String /// ISO 3166-1 alpha-2
+  timezone    String /// IANA time zone, e.g. Asia/Kolkata
+  currency    String /// ISO 4217 trading currency
+  openTime    String /// Regular session open, exchange-local "HH:mm"
+  closeTime   String /// Regular session close, exchange-local "HH:mm"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  instruments Instrument[]
+
+  @@index([region])
+}
+
+/// A tradable or reference instrument (stock, index, ETF) listed on one market.
+model Instrument {
+  id        String         @id @default(cuid())
+  marketId  String
+  symbol    String /// Exchange-specific ticker, e.g. RELIANCE (NSE), AAPL (NASDAQ)
+  name      String
+  type      InstrumentType
+  currency  String /// ISO 4217 quote currency
+  isin      String?        @unique
+  sector    String?
+  industry  String?
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  market          Market                     @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  priceBars       PriceBar[]
+  watchlistItems  WatchlistItem[]
+  alerts          Alert[]
+  holdings        Holding[]
+  transactions    Transaction[]
+  paperOrders     PaperOrder[]
+  newsLinks       NewsArticleInstrument[]
+  providerSymbols InstrumentProviderSymbol[]
+  dataSyncs       MarketDataSync[]
+  sentiments      NewsSentiment[]
+  predictions     Prediction[]
+
+  @@unique([marketId, symbol])
+  @@index([symbol])
+  @@index([name])
+  @@index([type])
+}
+
+// ───────────────────────────── Market data ─────────────────────────────
+
+/// One OHLCV bar. `timestamp` is the bar's period start in UTC; for ONE_DAY bars it is the
+/// session open instant on `tradingDate` (exchange-local calendar date), whatever the source.
+/// Bars from different sources may coexist for the same session (e.g. simulated fallback and
+/// provider data); readers pick ONE source per instrument and never mix them in a series.
+model PriceBar {
+  id           String      @id @default(cuid())
+  instrumentId String
+  interval     BarInterval
+  timestamp    DateTime
+  tradingDate  String /// Exchange-local trading date, "YYYY-MM-DD"
+  open         Float
+  high         Float
+  low          Float
+  close        Float
+  adjClose     Float?
+  volume       Float
+  source       String /// Data source id: "mint-demo-generator", "upstox", "alpaca-iex", "alpaca-sip"
+  isSimulated  Boolean
+  fetchedAt    DateTime    @default(now())
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([instrumentId, interval, source, timestamp]) // duplicate prevention per source
+  @@index([instrumentId, interval, isSimulated, tradingDate])
+}
+
+/// Exchange-specific symbol used by an external market-data provider for an instrument,
+/// e.g. Upstox "NSE_EQ|INE002A01018" for RELIANCE, Alpaca "AAPL".
+model InstrumentProviderSymbol {
+  id             String   @id @default(cuid())
+  instrumentId   String
+  provider       String /// "upstox" | "alpaca"
+  providerSymbol String
+  verifiedFrom   String? /// Where the mapping was verified (e.g. Upstox BOD instrument file)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, instrumentId])
+  @@unique([provider, providerSymbol])
+}
+
+enum SyncStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+  SKIPPED
+}
+
+/// Audit log of every provider fetch: what was requested, what came back, what was stored.
+model MarketDataSync {
+  id           String      @id @default(cuid())
+  provider     String
+  instrumentId String?
+  interval     BarInterval
+  source       String? /// PriceBar.source written by this run
+  fromDate     String /// Requested exchange-local start date "YYYY-MM-DD"
+  toDate       String /// Requested exchange-local end date "YYYY-MM-DD"
+  status       SyncStatus
+  received     Int         @default(0)
+  inserted     Int         @default(0)
+  updated      Int         @default(0)
+  unchanged    Int         @default(0)
+  rejected     Int         @default(0)
+  message      String? /// Error or warning summary (never contains credentials)
+  startedAt    DateTime
+  finishedAt   DateTime
+
+  instrument Instrument? @relation(fields: [instrumentId], references: [id], onDelete: SetNull)
+
+  @@index([provider, startedAt])
+  @@index([instrumentId, startedAt])
+}
+
+// ───────────────────────────── Watchlists & alerts ─────────────────────────────
+
+model Watchlist {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items WatchlistItem[]
+}
+
+model WatchlistItem {
+  id           String   @id @default(cuid())
+  watchlistId  String
+  instrumentId String
+  note         String?
+  sortOrder    Int      @default(0)
+  addedAt      DateTime @default(now())
+
+  watchlist  Watchlist  @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([watchlistId, instrumentId])
+  @@index([instrumentId])
+}
+
+model Alert {
+  id              String      @id @default(cuid())
+  instrumentId    String
+  type            AlertType
+  threshold       Float /// Price level (PRICE_*) or percent (PERCENT_*) or volume multiple (VOLUME_SPIKE)
+  status          AlertStatus @default(ACTIVE)
+  note            String?
+  lastEvaluatedAt DateTime?
+  triggeredAt     DateTime?
+  triggeredValue  Float?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  instrument    Instrument     @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  notifications Notification[]
+
+  @@index([status])
+  @@index([instrumentId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  type      NotificationType
+  title     String
+  body      String
+  alertId   String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  alert Alert? @relation(fields: [alertId], references: [id], onDelete: SetNull)
+
+  @@index([readAt])
+  @@index([createdAt])
+}
+
+// ───────────────────────────── Portfolio & paper trading ─────────────────────────────
+
+model Portfolio {
+  id           String        @id @default(cuid())
+  name         String        @unique
+  kind         PortfolioKind
+  baseCurrency String /// ISO 4217 reporting currency
+  cashBalance  Decimal       @default(0) /// Used for PAPER portfolios (virtual balance)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  holdings     Holding[]
+  transactions Transaction[]
+  paperOrders  PaperOrder[]
+}
+
+model Holding {
+  id           String   @id @default(cuid())
+  portfolioId  String
+  instrumentId String
+  quantity     Decimal
+  averageCost  Decimal /// Per-unit average cost in `currency`
+  currency     String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  portfolio  Portfolio  @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  instrument Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+
+  @@unique([portfolioId, instrumentId])
+  @@index([instrumentId])
+}
+
+model Transaction {
+  id           String          @id @default(cuid())
+  portfolioId  String
+  instrumentId String
+  type         TransactionType
+  quantity     Decimal
+  price        Decimal /// Per-unit price in `currency`
+  fees         Decimal         @default(0)
+  currency     String
+  executedAt   DateTime
+  note         String?
+  paperOrderId String?         @unique
+  createdAt    DateTime        @default(now())
+
+  portfolio  Portfolio   @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  instrument Instrument  @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+  paperOrder PaperOrder? @relation(fields: [paperOrderId], references: [id], onDelete: SetNull)
+
+  @@index([portfolioId, executedAt])
+  @@index([instrumentId])
+}
+
+model PaperOrder {
+  id           String           @id @default(cuid())
+  portfolioId  String
+  instrumentId String
+  side         OrderSide
+  orderType    OrderType
+  quantity     Decimal
+  limitPrice   Decimal?
+  status       PaperOrderStatus @default(PENDING)
+  filledPrice  Decimal?
+  filledAt     DateTime?
+  rejectReason String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  portfolio   Portfolio    @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  instrument  Instrument   @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+  transaction Transaction?
+
+  @@index([portfolioId, status])
+  @@index([instrumentId])
+}
+
+// ───────────────────────────── News & AI ─────────────────────────────
+
+model NewsArticle {
+  id          String   @id @default(cuid())
+  url         String   @unique
+  title       String
+  summary     String?
+  publisher   String
+  source      String /// Provider identifier
+  region      Region?
+  publishedAt DateTime
+  fetchedAt   DateTime @default(now())
+
+  instruments NewsArticleInstrument[]
+  sentiments  NewsSentiment[]
+
+  @@index([publishedAt])
+}
+
+/// Join table: which instruments an article mentions.
+model NewsArticleInstrument {
+  articleId    String
+  instrumentId String
+
+  article    NewsArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  instrument Instrument  @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, instrumentId])
+  @@index([instrumentId])
+}
+
+model NewsSentiment {
+  id             String         @id @default(cuid())
+  articleId      String
+  instrumentId   String? /// Null = article-level sentiment
+  modelVersionId String
+  label          SentimentLabel
+  score          Float /// -1 (very negative) … +1 (very positive)
+  confidence     Float /// 0 … 1
+  createdAt      DateTime       @default(now())
+
+  article      NewsArticle  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  instrument   Instrument?  @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  modelVersion ModelVersion @relation(fields: [modelVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([articleId, instrumentId, modelVersionId])
+  @@index([instrumentId])
+}
+
+model ModelVersion {
+  id          String    @id @default(cuid())
+  name        String
+  version     String
+  kind        ModelKind
+  description String?
+  featureSet  String? /// JSON: feature names used
+  metrics     String? /// JSON: evaluation metrics on the held-out test window
+  trainStart  DateTime?
+  trainEnd    DateTime?
+  testStart   DateTime?
+  testEnd     DateTime?
+  trainedAt   DateTime?
+  isActive    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  predictions Prediction[]
+  sentiments  NewsSentiment[]
+
+  @@unique([name, version])
+}
+
+model Prediction {
+  id             String   @id @default(cuid())
+  instrumentId   String
+  modelVersionId String
+  asOf           DateTime /// Last data timestamp the model was allowed to see (look-ahead guard)
+  horizonDays    Int
+  predictedClass String? /// e.g. UP / DOWN / FLAT
+  probability    Float?
+  predictedValue Float?
+  lowerBound     Float?
+  upperBound     Float?
+  explanation    String? /// JSON: feature attributions
+  createdAt      DateTime @default(now())
+
+  instrument   Instrument   @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  modelVersion ModelVersion @relation(fields: [modelVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([instrumentId, modelVersionId, asOf, horizonDays])
+  @@index([asOf])
+}
