@@ -24,7 +24,7 @@ import { computeRangeStats } from "@/lib/quotes";
 import { formatPrice, formatVolume } from "@/lib/format";
 import { describeAlert } from "@/lib/alerts";
 import { getBenchmark } from "@/server/services/markets";
-import { buildTechnicalSummary } from "@/lib/technical-summary";
+import { technicalAnalysisFor } from "@/server/services/analysis";
 import { TechnicalAnalysis } from "@/components/analysis/technical-analysis";
 
 type Params = Promise<{ id: string }>;
@@ -61,11 +61,7 @@ async function InstrumentDetail({ params }: { params: Params }) {
     listAlerts({ instrumentId: id }),
     getBenchmark(instrument.market.region),
   ]);
-  const analysis = buildTechnicalSummary(history.bars, {
-    isSimulated: history.provenance?.isSimulated ?? true,
-    benchmark: benchmark ? { name: benchmark.name, bars: benchmark.bars, isSimulated: benchmark.isSimulated } : null,
-    benchmarkIsSelf: benchmark?.instrumentId === instrument.id,
-  });
+  const analysis = technicalAnalysisFor(instrument, history, benchmark);
 
   const q = instrument.quote;
   const yearBars = history.bars.slice(-252);
