@@ -5,7 +5,7 @@
  */
 import type { CompanyFundamentals, DataOrigin, FundamentalsInstrumentRef } from "@/lib/fundamentals/types";
 
-export type FundamentalsErrorKind = "NOT_CONFIGURED" | "RATE_LIMITED" | "TIMEOUT" | "INVALID_RESPONSE" | "PROVIDER_ERROR";
+export type FundamentalsErrorKind = "NOT_CONFIGURED" | "FORBIDDEN" | "RATE_LIMITED" | "TIMEOUT" | "INVALID_RESPONSE" | "PROVIDER_ERROR";
 
 /** Errors carry no secrets; `message` is safe to log and show. */
 export class FundamentalsError extends Error {

@@ -1,0 +1,64 @@
+{
+ "data": [
+  [
+   320193,
+   "Apple Inc.",
+   "AAPL",
+   "Nasdaq"
+  ],
+  [
+   789019,
+   "MICROSOFT CORP",
+   "MSFT",
+   "Nasdaq"
+  ],
+  [
+   1652044,
+   "Alphabet Inc.",
+   "GOOGL",
+   "Nasdaq"
+  ],
+  [
+   1652044,
+   "Alphabet Inc.",
+   "GOOG",
+   "Nasdaq"
+  ],
+  [
+   19617,
+   "JPMORGAN CHASE & CO",
+   "JPM",
+   "NYSE"
+  ],
+  [
+   1067983,
+   "BERKSHIRE HATHAWAY INC",
+   "BRK-B",
+   "NYSE"
+  ],
+  [
+   1067983,
+   "BERKSHIRE HATHAWAY INC",
+   "BRK-A",
+   "NYSE"
+  ],
+  [
+   2070829,
+   "Contemporary Amperex Technology Co., Limited/ADR",
+   "CYATY",
+   "OTC"
+  ],
+  [
+   1834261,
+   "Core Specialty Insurance Holdings, Inc.",
+   "CORE",
+   null
+  ]
+ ],
+ "fields": [
+  "cik",
+  "name",
+  "ticker",
+  "exchange"
+ ]
+}
