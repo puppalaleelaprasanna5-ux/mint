@@ -65,12 +65,21 @@ export interface CashFlowStatement {
   shareRepurchases: Amount; // negative = cash paid out
 }
 
+/** A filing that supplied figures for a period (e.g. an SEC 10-K or 10-Q). */
+export interface SourceFiling {
+  accessionNumber: string;
+  form: string;
+  filedAt: string; // YYYY-MM-DD
+}
+
 /** One reporting period. A statement is null when the provider did not supply it at all. */
 export interface FinancialStatementSet {
   period: FiscalPeriod;
   income: IncomeStatement | null;
   balance: BalanceSheet | null;
   cashFlow: CashFlowStatement | null;
+  /** Filings the figures were taken from, oldest first (optional; mock data has none). */
+  sources?: SourceFiling[];
 }
 
 /** Where the figures came from. "mock" data must never be presented as real. */
@@ -94,6 +103,8 @@ export interface CompanyFundamentals {
   annual: FinancialStatementSet[];
   quarterly: FinancialStatementSet[];
   provenance: FundamentalsProvenance;
+  /** Provider notes about coverage or mapping, e.g. why a figure is always null. */
+  notes?: string[];
 }
 
 /** Markets for which fundamental data is meaningful in Mint. */

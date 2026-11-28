@@ -87,6 +87,14 @@ describe("validateFundamentals", () => {
     expect(v.issues.find((i) => i.level === "error")?.message).toMatch(message);
   });
 
+  it("accepts source filings and notes, and rejects malformed accession numbers", () => {
+    const withSources = (accessionNumber: string) =>
+      company({ annual: [{ ...set("annual", "2026-03-31"), sources: [{ accessionNumber, form: "10-K", filedAt: "2026-05-01" }] }], notes: ["Total debt is not reported."] });
+    expect(validate(withSources("0000320193-26-000026"))).toMatchObject({ valid: true, issues: [] });
+    expect(validate(withSources("dddddddddd-dd-dddddd")).valid).toBe(false);
+    expect(validate(withSources("320193-26-26")).valid).toBe(false);
+  });
+
   it("warns (but keeps data) when accounting identities don't add up", () => {
     const base = set("annual", "2026-03-31");
     const c = company({

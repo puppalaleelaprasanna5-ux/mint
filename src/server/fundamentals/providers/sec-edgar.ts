@@ -30,6 +30,8 @@ import { FundamentalsError } from "../provider";
 export const SEC_EDGAR_SOURCE = "sec-edgar";
 const TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json";
 const SUBMISSIONS_URL = "https://data.sec.gov/submissions";
+/** CompanyFacts: https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json (SEC API docs). */
+const XBRL_URL = "https://data.sec.gov/api/xbrl";
 const ARCHIVES_URL = "https://www.sec.gov/Archives/edgar/data";
 
 /** SEC exchange names → Mint market codes. Others (OTC, CBOE, TXSE, null) are not Mint markets. */
@@ -230,6 +232,19 @@ export class SecEdgarProvider implements CompanyLookupProvider {
       listedExchange: entry.exchange,
       exchangeMatches: entry.exchange !== null && EXCHANGE_TO_MARKET[entry.exchange] === ref.market,
     };
+  }
+
+  /**
+   * Raw XBRL CompanyFacts for a CIK, or null when SEC has none (404). Uses the same User-Agent,
+   * throttle, refusal pause and timeout as every other SEC request. Not cached here (the file is
+   * several MB); callers cache their normalised result.
+   */
+  async fetchCompanyFacts(cik: string | number, { signal }: { signal?: AbortSignal } = {}): Promise<unknown | null> {
+    if (!this.#userAgent) {
+      throw new FundamentalsError("NOT_CONFIGURED", 'SEC_USER_AGENT is not set or invalid. Use "<app name> <your contact email>".');
+    }
+    if (signal?.aborted) throw new FundamentalsError("TIMEOUT", "Request was cancelled.");
+    return this.#getJson(`${XBRL_URL}/companyfacts/CIK${padCik(cik)}.json`);
   }
 
   #filings(cik: number, subs: SecSubmissions): CompanyFilings {

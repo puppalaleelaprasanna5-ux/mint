@@ -37,11 +37,18 @@ const periodSchema = z.object({
   filedAt: date.nullable(),
 }).strict();
 
+const sourceSchema = z.object({
+  accessionNumber: z.string().regex(/^\d{10}-\d{2}-\d{6}$/, "Expected an accession number like 0000320193-26-000026"),
+  form: z.string().min(1).max(20),
+  filedAt: date,
+}).strict();
+
 const setSchema = z.object({
   period: periodSchema,
   income: incomeSchema.nullable(),
   balance: balanceSchema.nullable(),
   cashFlow: cashFlowSchema.nullable(),
+  sources: z.array(sourceSchema).max(20).optional(),
 }).strict();
 
 export const companyFundamentalsSchema = z.object({
@@ -56,6 +63,7 @@ export const companyFundamentalsSchema = z.object({
     origin: z.enum(["real", "mock"]),
     fetchedAt: z.string().datetime(),
   }).strict(),
+  notes: z.array(z.string().max(300)).max(20).optional(),
 }).strict();
 
 export interface ValidationIssue {

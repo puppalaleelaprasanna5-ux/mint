@@ -37,7 +37,8 @@ export type FundamentalsResult =
   | { status: "invalid"; reason: string; provider: string; issues: ValidationIssue[] }
   | { status: "error"; code: FundamentalsErrorKind; reason: string; provider: string };
 
-export const DEFAULT_FUNDAMENTALS_TIMEOUT_MS = 15_000;
+/** Covers providers that need several rate-limited requests (e.g. SEC: ticker list, company, facts). */
+export const DEFAULT_FUNDAMENTALS_TIMEOUT_MS = 30_000;
 
 export async function loadFundamentals(
   provider: FundamentalsProvider | null,
@@ -66,6 +67,7 @@ export async function loadFundamentals(
     if (raw === null) {
       return { status: "missing", reason: `No financial statements available for ${ref.symbol} from ${provider.name}.`, provider: provider.name };
     }
+    if ("missing" in raw) return { status: "missing", reason: raw.reason, provider: provider.name };
 
     const v = validateFundamentals(raw, { expectedCurrency: ref.currency, now });
     if (!v.valid || !v.data) {

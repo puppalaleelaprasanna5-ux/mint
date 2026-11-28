@@ -28,6 +28,12 @@ export interface FundamentalsProviderStatus {
   notes: string[];
 }
 
+/** Explicit "no data", with a reason the user can understand (e.g. "reports under IFRS"). */
+export interface FundamentalsMissing {
+  missing: true;
+  reason: string;
+}
+
 export interface FundamentalsProvider {
   readonly id: string;
   readonly name: string;
@@ -39,5 +45,5 @@ export interface FundamentalsProvider {
    * Raw provider output, normalised to CompanyFundamentals but NOT yet trusted: the loader
    * validates it. Resolve to null when the provider has no data for this company.
    */
-  fetchFundamentals(ref: FundamentalsInstrumentRef, options: { signal: AbortSignal }): Promise<CompanyFundamentals | null>;
+  fetchFundamentals(ref: FundamentalsInstrumentRef, options: { signal: AbortSignal }): Promise<CompanyFundamentals | FundamentalsMissing | null>;
 }
